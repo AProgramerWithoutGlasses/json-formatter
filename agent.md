@@ -2,37 +2,38 @@
 
 ## 项目目标
 
-一个简洁清晰的 H5 JSON 整理网站：粘贴后自动整理，可切换自动换行；Go 服务完成无损格式化，MySQL 保存转换历史。所有沟通与面向用户的提示使用中文。
+一个简洁清晰的 H5 JSON 整理网站：粘贴后自动整理，可切换自动换行；Go 服务完成无损格式化，浏览器 IndexedDB 保存转换历史，Go 后端无状态。所有沟通与面向用户的提示使用中文。
 
 ## 结构与运行
 
-- `cmd/server/main.go`：读取环境变量、连接数据库、初始化表、启动 HTTP 服务、退出清理。
+- `cmd/server/main.go`：读取 ADDR、启动 HTTP 服务、退出清理。
 - `internal/app/format.go`：JSON 整理核心及行列错误定位。
 - `internal/app/repair.go`：保守语法修复、插入字符来源追踪及 UTF-16 高亮范围。
-- `internal/app/app.go`：HTTP API、安全响应头、浏览器会话、请求校验。
-- `internal/app/store.go`：MySQL 表结构、参数化 SQL、历史查询与去重。
+- `internal/app/app.go`：无状态格式化/健康 API、安全响应头、请求校验。
+- `web/history.js`：浏览器 IndexedDB CRUD、事务去重与淘汰、跨标签页通知。后端不得恢复历史接口。
 - `web/`：HTML5、CSS、JavaScript；使用 `go:embed` 打入可执行文件。修改前端后须重新编译/重启 Go。
 - `web/editor-source.js`：CodeMirror 6 编辑器适配器、JSON 折叠与修复标记；修改后执行 `npm ci`、`npm run build:editor`，将 `editor-bundle.js` 和许可证文件一同保留。运行网站不依赖 npm/CDN。
-- `scripts/start-local.ps1`：本地 MySQL 13307 + Go 8080。仅使用 `.local/`，不修改已安装的 MySQL 服务。
-- `scripts/stop-local.ps1`：停止本项目本地服务，保留数据。
+- `scripts/start-local.ps1`：仅 Go 8080，构建和日志放在 `.local/`，不需要数据库。
+- `scripts/stop-local.ps1`：仅停止本项目 Go 服务，浏览器历史不受影响。
 - `scripts/browser-test.cjs`：API 和浏览器端回归检查，需要运行中的服务。
+- `scripts/history-test.cjs`：浏览器重启持久化、隔离、同步、限额和失败行为测试。
 
-启动：`./scripts/start-local.ps1`。自有数据库配置见 README。`.env.example` 仅为模板，Go 不自动加载 `.env`。
+启动：`./scripts/start-local.ps1`。可选 ADDR 配置见 README。`.env.example` 仅为模板，Go 不自动加载 `.env`。
 
 ## 必须保持的行为
 
 1. **不能使用 JSON.parse + JSON.stringify 整理用户数据**。这会让超过 2^53 的整数丢失精度，并合并重复字段。后端使用 `encoding/json.Indent/Compact`，只改空白。
 2. 粘贴立即触发请求，普通输入停止 450 ms 后触发请求。有效结果直接写回同一 CodeMirror 文档；保留光标/选区内容位置与滚动位置，中文输入法组合期间不得替换内容。无效输入保留原文。前端使用版本号和 AbortController 丢弃旧响应。
-3. 整理成功且 `save=true` 才写历史；历史恢复不自动写入。相同会话、输入、模式、缩进的记录去重并更新时间。
+3. 当前有效格式化响应才通过前端 localHistory.save 写本地历史；save 仅是前端内部标志，不传后端。历史恢复和撤销不写入。相同输入、模式、缩进去重并更新时间。
 4. 修复只能由用户点击“修复 JSON”触发（单次 repair=true）；粘贴、输入、切换模式/缩进、快捷键和历史恢复均 repair=false，禁止恢复自动修复开关。API 的 `repair` 默认 false。仅修复语法符号，不猜测缺失值或未知字面量。无法修复则保留原文、显示错误行列且不保存。最大输入 1 MiB（UTF-8 字节数），HTTP JSON 封装最大约 6 MiB 以容纳转义字符。
-5. 数据库不可用时展示真实错误；历史保存失败可以返回已完成的整理结果，但必须显示保存失败，不能假装已落库。
+5. IndexedDB 不可用、升级被阻塞、配额耗尽时仍显示格式化结果，并明确提示本地历史未保存；不得降级为服务器或内存历史。读历史失败不得阻塞格式化请求。
 6. 自动换行只控制显示，作用于唯一编辑框，不修改结果或额外保存历史。
 7. 编辑区使用 CodeMirror 6，window.jsonEditor 适配器提供完整原文、选区、换行和滚动接口。修复高亮是 StateField/Decoration 文档范围，折叠时不删除标记。只有一个可编辑框。历史标题使用 textContent；绝不把用户原文直接放入 innerHTML。CodeMirror 动态注入样式，因此 CSP 仅放开 inline style，script-src 仍限制 self。
-8. 历史用随机 256-bit HttpOnly SameSite=Strict Cookie 标识，数据库存会话 hash。所有历史读写、删除须带 session_hash 条件；禁止记录原始 JSON 或 Cookie 到日志。
-9. 浏览器隔离不是账号登录系统。清理 Cookie 或更换浏览器后不能找回原会话；公开部署前需要认证、配额、保留期限、HTTPS 以及备份策略。
-10. 数据库 datetime 使用 UTC；本地脚本配置 MySQL UTC，页面显示用户本地时间。自有数据库同样建议配置 UTC。
+8. 历史仅在当前 origin（协议、主机、端口）和浏览器用户配置下隔离；后端不连接数据库、不写文件历史、不设置会话 Cookie，不记录请求正文。API 只接收 input/indent/mode/repair，不接受 save。
+9. 浏览器本地存储不是账号登录系统。同一浏览器配置共用历史，多人共用电脑应分浏览器配置或无痕窗口。清网站数据会丢失历史，只清 Cookie 不丢失；更换浏览器、设备、域名或端口不共享。格式化内容仍会发送 Go 计算，禁止声称完全离线或数据完全不出浏览器。
+10. IndexedDB 时间为毫秒时间戳；写入事务中单调递增以避免并发同毫秒/时钟回拨排序歧义。页面显示本地时间。最多 100 条/原文总计 10 MiB，写入和淘汰必须同一 readwrite 事务；列表只返回摘要，不将全部原文留在 UI 状态中。
 11. 修复插入字符用绿色和下划线双重标识；删除只显示数量，不伪造留在结果中的字符。返回范围是整理结果中的 UTF-16 偏移，格式化/压缩/缩进切换必须保留标记。用户手动编辑后清除旧标记。中文输入法组合期间不修复。
-12. 撤销修复恢复当前修复前的原文，本次严格校验不再自动修复或写历史。原文仅暂存在页面内存；MySQL 保存可用的修复结果，不保存修复元数据；历史恢复后不显示旧标记。最大修复 256 个符号、嵌套 128 层，超出保持原文报错。
+12. 撤销修复恢复当前修复前的原文，本次严格校验不再自动修复或写历史。原文仅暂存在页面内存；IndexedDB 保存可用的修复结果，不保存修复元数据；历史恢复后不显示旧标记。最大修复 256 个符号、嵌套 128 层，超出保持原文报错。
 
 13. 折叠完全由 CodeMirror 视图状态管理，禁止将省略号写入文档。对象/数组起始行可独立折叠，支持全部收起/展开；父段展开时保留子段折叠状态。键盘复制、格式化与历史始终读取完整文档，不读取 DOM textContent。折叠不得调用保存接口。修改后回归嵌套折叠、键盘操作、修复标记恢复及大整数/重复键保留。
 
@@ -50,14 +51,14 @@
 
 页面直接从工具栏和编辑区开始，不加顶部品牌栏或宣传区。连接状态放在编辑区下方。嵌入资源 URL 固定，使用 Cache-Control: no-cache 确保刷新时验证最新版本；API 继续使用 no-store。
 
-当前为 schema v1，启动使用 CREATE TABLE IF NOT EXISTS。表结构变更必须新增显式、可追踪迁移，不能假设该语句更新已有列。历史接口最多展示最近 100 条，数据库目前不自动删除旧记录；保留策略变更须写入 README。不要提交数据库或历史导出。
+IndexedDB 库 json-studio-history，版本 1，entries store。升级用 onupgradeneeded 显式迁移，onversionchange 关闭旧连接；广播不含历史内容。旧 MySQL 文件仅保留备份，不自动导入浏览器，不读写旧历史。不要提交浏览器配置、旧数据库或历史导出。
 
 ## 验证与交付
 
-常规修改：`gofmt -w cmd internal web/embed.go`、`go test ./...`、`go vet ./...`、`node --check web/app.js`、`git diff --check`。
+常规修改：`gofmt -w cmd internal web/embed.go`、`go test ./...`、`go vet ./...`、`node --check web/app.js`、`node --check web/history.js`、`git diff --check`。
 
 界面/API：启动服务，`npm install`、`npx playwright install chromium`，再 `npm run test:e2e`。测试创建独立会话并清理自己的记录，不触碰用户历史。检查 `.local/screenshots/` 中桌面、错误、390px 与 320px 截图。不要仅凭 DOM 测试声称视觉效果已确认。
 
-重点回归：大整数与重复字段、Unicode 错误位置、1 MiB 限制、历史落库/恢复/去重/删除、跨会话拒绝、跨站请求拒绝、保存失败提示、快速输入的响应竞争。浏览器检查换行、缩进、压缩、键盘复制、窄屏溢出。
+重点回归：大整数与重复字段、Unicode 错误位置、1 MiB 限制、浏览器重启持久化/恢复/去重/删除、浏览器配置隔离、跨标签页同步、100 条/10 MiB 限额、跨站请求拒绝、保存失败提示、快速输入的响应竞争。浏览器检查换行、缩进、压缩、键盘复制、窄屏溢出。
 
 交付区分实际验证和静态检查；未经用户要求不自动推送。本地预览保持服务运行并提供地址。

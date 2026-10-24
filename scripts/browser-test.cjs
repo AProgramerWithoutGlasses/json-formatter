@@ -1,4 +1,4 @@
-// Uses isolated sessions and removes test records. Requires a running local server.
+// Uses isolated browser contexts with their own local history. Requires a running local server.
 const { chromium, request } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
@@ -28,32 +28,25 @@ const waitFor = async (predicate, message) => {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const api = await request.newContext({ baseURL });
-  let stranger;
+  const historyRequests = [];
+  page.on('request', (request) => { if (request.url().includes('/api/history')) historyRequests.push(request.url()); });
   try {
-    const response = await api.post('/api/format', { data: { input: '{"id":9007199254740993,"a":1,"a":2}', mode: 'format', indent: '2', save: true } });
+    const response = await api.post('/api/format', { data: { input: '{"id":9007199254740993,"a":1,"a":2}', mode: 'format', indent: '2' } });
     assert.equal(response.status(), 200);
     const formatted = await response.json();
-    assert.equal(formatted.saved, true);
+    assert.equal(formatted.saved, undefined);
+    assert.equal(response.headers()['set-cookie'], undefined);
     assert.ok(formatted.output.includes('9007199254740993'));
     assert.ok(formatted.output.includes('"a": 1') && formatted.output.includes('"a": 2'));
-    const list = await (await api.get('/api/history')).json();
-    assert.equal(list.items.length, 1);
-    const record = list.items[0];
-    const restored = await (await api.get(`/api/history/${record.id}`)).json();
-    assert.equal(restored.input, '{"id":9007199254740993,"a":1,"a":2}');
-    await api.post('/api/format', { data: { input: restored.input, mode: 'format', indent: '2', save: true } });
-    assert.equal((await (await api.get('/api/history')).json()).items.length, 1);
-    stranger = await request.newContext({ baseURL });
-    assert.equal((await (await stranger.get('/api/history')).json()).items.length, 0);
-    assert.equal((await stranger.get(`/api/history/${record.id}`)).status(), 404);
-    assert.equal((await stranger.delete(`/api/history/${record.id}`)).status(), 404);
-    assert.equal((await api.post('/api/format', { data: { input: '{"a":}', save: true } })).status(), 422);
+    assert.equal((await api.get('/api/history')).status(), 404);
+    assert.equal((await api.get('/api/history/1')).status(), 404);
+    assert.equal((await api.delete('/api/history/1')).status(), 404);
+    assert.equal((await api.post('/api/format', { data: { input: '{"a":}' } })).status(), 422);
     assert.equal((await api.post('/api/format', { data: { input: '{}', indent: '8' } })).status(), 422);
     assert.equal((await api.post('/api/format', { data: { input: '{}', mode: 'weird' } })).status(), 422);
     assert.equal((await api.post('/api/format', { data: { input: ' '.repeat(1048577) } })).status(), 422);
     assert.equal((await api.post('/api/format', { headers: { Origin: 'https://example.com' }, data: { input: '{}' } })).status(), 403);
     assert.equal((await api.get('/api/history')).headers()['cache-control'], 'no-store');
-    assert.equal((await (await api.get('/api/history')).json()).items.length, 1);
     await page.goto(baseURL);
     await page.waitForFunction(() => document.querySelector('#connection').textContent.includes('已连接'));
     assert.equal(await page.locator('.cm-content[contenteditable=true]').count(), 1);
@@ -189,15 +182,13 @@ const waitFor = async (predicate, message) => {
     assert.match(await editor.inputValue(), /new-value/);
     assert.ok(!(await editor.inputValue()).includes('old-value'));
     await page.unroute('**/api/format');
-    // Repair API preserves big numbers and stores usable corrected content.
-    const repairResponse = await api.post('/api/format', { data: { input: '{name:"中文😀" "id":9007199254740993,', repair: true, save: true } });
+    // Repair API preserves big numbers without storing anything on the server.
+    const repairResponse = await api.post('/api/format', { data: { input: '{name:"中文😀" "id":9007199254740993,', repair: true } });
     assert.equal(repairResponse.status(), 200);
     const repairData = await repairResponse.json();
     assert.equal(repairData.repair.added, 4);
     assert.equal(repairData.repair.removed, 1);
     assert.match(repairData.output, /9007199254740993/);
-    const latest = (await (await api.get('/api/history')).json()).items[0];
-    assert.equal((await (await api.get(`/api/history/${latest.id}`)).json()).input, repairData.output);
     // Pasting, formatting, indentation and shortcuts must never opt into repair.
     const broken = '{name:"中文😀" "id":9007199254740993,"items":[1,2,]';
     await page.evaluate((value) => navigator.clipboard.writeText(value), broken);
@@ -207,7 +198,7 @@ const waitFor = async (predicate, message) => {
     await page.waitForFunction(() => !document.querySelector('#error-panel').hidden);
     assert.equal(await editor.inputValue(), broken);
     assert.equal(await page.locator('#repair-notice').isHidden(), true);
-    const historyBeforeRepair = (await (await context.request.get(`${baseURL}/api/history`)).json()).items.length;
+    const historyBeforeRepair = await page.evaluate(async () => (await window.localHistory.list()).length);
     const automaticRequests = [];
     const watchRepair = (request) => { if (request.url().endsWith('/api/format')) automaticRequests.push(request.postDataJSON()); };
     page.on('request', watchRepair);
@@ -223,7 +214,7 @@ const waitFor = async (predicate, message) => {
     assert.ok(automaticRequests.length >= 4);
     assert.ok(automaticRequests.every((request) => request.repair === false));
     page.off('request', watchRepair);
-    assert.equal((await (await context.request.get(`${baseURL}/api/history`)).json()).items.length, historyBeforeRepair);
+    assert.equal(await page.evaluate(async () => (await window.localHistory.list()).length), historyBeforeRepair);
     await page.locator('#indent').selectOption('2');
     await page.locator('#repair-json').click();
     await page.waitForFunction(() => !document.querySelector('#repair-notice').hidden);
@@ -232,6 +223,11 @@ const waitFor = async (predicate, message) => {
     const repairedText = await editor.inputValue();
     assert.match(repairedText, /9007199254740993/);
     assert.equal(await page.locator('.cm-repair').first().isVisible(), true);
+    await page.waitForFunction(() => document.querySelector('#save-status').textContent.includes('已保存'));
+    assert.equal(await page.evaluate(async () => {
+      const latest = (await window.localHistory.list())[0];
+      return (await window.localHistory.get(latest.id)).input;
+    }), repairedText);
     await editor.focus();
     await editor.press('ControlOrMeta+A');
     await editor.press('ControlOrMeta+C');
@@ -374,13 +370,11 @@ const waitFor = async (predicate, message) => {
     await editor.fill('');
     await page.waitForFunction(() => window.jsonEditor.value === '' && document.querySelector('#output-status').textContent === '');
     assert.equal(await page.locator('.cm-foldPlaceholder').count(), 0);
+    assert.deepEqual(historyRequests, [], 'browser must never request server history');
     assert.deepEqual(errors, []);
-    console.log('PASS: nested folding, fold-all/unfold-all, full-data keyboard copy, repair marks after expansion, MySQL history, single editor, collapsed sidebar, caret, IME, stale responses, deduplication, isolation, validation, XSS, auto-format, restore, keyboard copy, indentation, compact, wrap, error, search, delete, clear, responsive layouts (320/390/768/1024/1440).');
+    console.log('PASS: nested folding, fold-all/unfold-all, full-data keyboard copy, repair marks after expansion, IndexedDB history, single editor, collapsed sidebar, caret, IME, stale responses, deduplication, isolation, validation, XSS, auto-format, restore, keyboard copy, indentation, compact, wrap, error, search, delete, clear, responsive layouts (320/390/768/1024/1440).');
     console.log(`Screenshots: ${output}`);
   } finally {
-    for (const client of [api, context.request]) {
-      try { const data = await (await client.get(`${baseURL}/api/history`)).json(); for (const item of data.items || []) await client.delete(`${baseURL}/api/history/${item.id}`); } catch {}
-    }
-    await stranger?.dispose(); await api.dispose(); await browser.close();
+    await api.dispose(); await browser.close();
   }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

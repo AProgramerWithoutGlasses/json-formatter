@@ -14,7 +14,7 @@ function toast(message) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, { credentials: 'same-origin', ...options });
+  const response = await fetch(path, { credentials: 'omit', ...options });
   if (response.status === 204) return null;
   const data = await response.json();
   if (!response.ok) throw Object.assign(new Error(data.error || '请求失败，请重试'), data);
@@ -50,7 +50,7 @@ function schedule({ save = true, immediate = false, repair = false } = {}) {
   if (state.composing) return;
   if (!input.value.trim()) {
     resetOutput();
-    $('save-status').textContent = '◈ 有效 JSON 自动保存历史 · 仅当前浏览器可见';
+    $('save-status').textContent = '历史仅保存在此浏览器 · 清除网站数据后会丢失';
     return;
   }
   $('error-panel').hidden = true;
@@ -67,10 +67,10 @@ async function format(version, save, repair) {
   }
   const controller = new AbortController(); state.controller = controller;
   try {
-    await sessionReady;
     if (version !== state.version) return;
     const original = input.value;
-    const result = await api('/api/format', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input: original, mode: state.mode, indent: $('indent').value, save, repair }), signal: controller.signal });
+    const mode = state.mode, indent = $('indent').value;
+    const result = await api('/api/format', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input: original, mode, indent, repair }), signal: controller.signal });
     if (version !== state.version) return;
     state.output = result.output;
     replaceWithFormatted(result.output);
@@ -95,9 +95,21 @@ async function format(version, save, repair) {
     renderRepair();
     $('fold-all').disabled = false; $('unfold-all').disabled = false;
     status('有效 JSON', 'ok');
-    $('save-status').textContent = result.warning ? `◈ ${result.warning}` : result.saved ? '◈ 已保存到历史记录 · 仅当前浏览器可见' : '◈ ' + (state.activeID ? '已恢复历史记录' : '整理完成');
-    $('save-status').classList.toggle('save-warning', !!result.warning);
-    if (result.saved) await loadHistory();
+    if (save) {
+      $('save-status').textContent = '正在保存到此浏览器…';
+      try {
+        await window.localHistory.save({ input: result.repair ? result.output : original, mode, indent });
+        if (version !== state.version) return;
+        $('save-status').textContent = '已保存到此浏览器 · 清除网站数据后会丢失';
+        await loadHistory();
+      } catch (error) {
+        if (version !== state.version) return;
+        $('save-status').textContent = `整理完成，但本地历史未保存：${storageError(error)}`;
+        $('save-status').classList.add('save-warning');
+      }
+    } else {
+      $('save-status').textContent = state.activeID ? '已恢复本地历史记录' : '整理完成';
+    }
   } catch (error) {
     if (error.name === 'AbortError' || version !== state.version) return;
     showError(error);
@@ -168,14 +180,14 @@ function replaceWithFormatted(value) {
 async function loadHistory() {
   const version = ++state.historyVersion;
   try {
-    const result = await api('/api/history');
+    const items = await window.localHistory.list();
     if (version !== state.historyVersion) return;
-    state.history = result.items;
+    state.history = items;
     renderHistory();
   } catch (error) {
     if (version !== state.historyVersion) return;
     $('history-list').replaceChildren();
-    const msg = document.createElement('div'); msg.className = 'history-empty'; msg.textContent = error.message;
+    const msg = document.createElement('div'); msg.className = 'history-empty'; msg.textContent = `本地历史暂不可用：${storageError(error)}`;
     $('history-list').append(msg);
   }
 }
@@ -203,7 +215,7 @@ function renderHistory() {
     remove.addEventListener('click', async () => {
       if (!confirm('删除这条历史记录？此操作不会清空当前编辑区。')) return;
       remove.disabled = true;
-      try { await api(`/api/history/${item.id}`, { method: 'DELETE' }); if (state.activeID === item.id) state.activeID = null; await loadHistory(); toast('历史记录已删除'); } catch (error) { toast(error.message); remove.disabled = false; }
+      try { await window.localHistory.remove(item.id); if (state.activeID === item.id) state.activeID = null; await loadHistory(); toast('历史记录已删除'); } catch (error) { toast(error.message); remove.disabled = false; }
     });
     row.append(open, remove); container.append(row);
   }
@@ -212,7 +224,7 @@ function renderHistory() {
 async function restore(id) {
   const version = invalidate();
   try {
-    const item = await api(`/api/history/${id}`);
+    const item = await window.localHistory.get(id);
     if (version !== state.version) return;
     clearRepair(); input.value = item.input; state.activeID = item.id; state.mode = item.mode; $('indent').value = item.indent;
     updateMode(); renderHistory(); schedule({ save: false, immediate: true });
@@ -278,10 +290,16 @@ document.addEventListener('keydown', (event) => {
   if (event.altKey && event.key.toLowerCase() === 'n') { event.preventDefault(); clearInput(); }
 });
 async function health() {
-  try { await api('/api/health'); $('connection').classList.remove('offline'); $('connection').replaceChildren(); const dot = document.createElement('i'); $('connection').append(dot, 'MySQL 已连接'); }
+  try { await api('/api/health'); $('connection').classList.remove('offline'); $('connection').replaceChildren(); const dot = document.createElement('i'); $('connection').append(dot, '整理服务已连接'); }
   catch { $('connection').classList.add('offline'); $('connection').replaceChildren(); const dot = document.createElement('i'); $('connection').append(dot, '服务连接异常'); }
 }
-// Establish the HttpOnly session before the first auto-save to avoid first-load cookie races.
-const sessionReady = loadHistory();
+function storageError(error) {
+  if (error.name === 'QuotaExceededError') return '浏览器空间不足，请删除部分历史或释放空间后重试';
+  if (error.name === 'SecurityError' || error.name === 'InvalidStateError') return '浏览器禁止本地存储，请检查隐私设置';
+  return error.message || '请刷新重试';
+}
+window.localHistory.subscribe(loadHistory);
+window.addEventListener('focus', loadHistory);
+loadHistory();
 health();
 setInterval(health, 30000);

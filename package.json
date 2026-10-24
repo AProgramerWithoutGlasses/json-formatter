@@ -2,7 +2,8 @@
   "name": "json-studio-browser-tests",
   "private": true,
   "scripts": {
-    "test:e2e": "node scripts/browser-test.cjs",
+    "test:e2e": "node scripts/browser-test.cjs && node scripts/history-test.cjs",
+    "test:history": "node scripts/history-test.cjs",
     "build:editor": "node scripts/build-editor.cjs"
   },
   "devDependencies": {

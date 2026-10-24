@@ -14,17 +14,14 @@ type FormatRequest struct {
 	Input  string `json:"input"`
 	Indent string `json:"indent"`
 	Mode   string `json:"mode"`
-	Save   bool   `json:"save"`
 	Repair bool   `json:"repair"`
 }
 
 type FormatResult struct {
-	Output  string      `json:"output"`
-	Bytes   int         `json:"bytes"`
-	Lines   int         `json:"lines"`
-	Saved   bool        `json:"saved"`
-	Warning string      `json:"warning,omitempty"`
-	Repair  *RepairInfo `json:"repair,omitempty"`
+	Output string      `json:"output"`
+	Bytes  int         `json:"bytes"`
+	Lines  int         `json:"lines"`
+	Repair *RepairInfo `json:"repair,omitempty"`
 }
 
 type APIError struct {

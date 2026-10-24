@@ -9,6 +9,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='13' fill='%23e8f0ac'/%3E%3Ctext x='24' y='32' text-anchor='middle' font-size='27' font-family='monospace' fill='%232a3323'%3E%7B%7D%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
   <script src="/editor-bundle.js" defer></script>
+  <script src="/history.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -31,7 +32,7 @@
         <div id="repair-notice" class="repair-notice" hidden><span id="repair-summary" role="status"></span><button id="undo-repair" class="text-button">撤销修复</button></div>
         <div class="panel-footer"><div class="footer-status"><span id="output-status" aria-live="polite"></span><div id="error-panel" class="error-panel" role="alert" hidden><span class="error-detail"><span id="error-location"></span>：<span id="error-message"></span></span><button class="text-button" id="locate-error">定位错误</button></div></div><span id="input-meta">0 字符 · UTF-8</span></div>
       </section>
-      <div class="workspace-bottom"><div id="save-status" aria-live="polite">有效 JSON 自动保存历史 · 仅当前浏览器可见</div><span id="input-hint">粘贴即整理 · <kbd>Ctrl</kbd> + <kbd>Enter</kbd> 立即整理</span></div>
+      <div class="workspace-bottom"><div id="save-status" aria-live="polite">历史仅保存在此浏览器 · 清除网站数据后会丢失</div><span id="input-hint">粘贴即整理 · <kbd>Ctrl</kbd> + <kbd>Enter</kbd> 立即整理</span></div>
       <div class="connection" id="connection"><i></i>连接中</div>
     </main>
   </div>
