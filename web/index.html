@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8f9fb">
+  <meta name="description" content="一个清晰、轻巧的 JSON 工作台。自动整理、语法校验与历史记录。">
+  <title>JSON 整理工具</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='13' fill='%23e8f0ac'/%3E%3Ctext x='24' y='32' text-anchor='middle' font-size='27' font-family='monospace' fill='%232a3323'%3E%7B%7D%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/editor-bundle.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell" id="app-shell">
+    <button id="toggle-history" class="sidebar-handle" aria-expanded="false" aria-controls="history-sidebar" aria-label="展开历史记录" title="展开历史记录"><span aria-hidden="true">›</span></button>
+    <aside class="sidebar" id="history-sidebar" aria-label="历史记录" hidden>
+      <button class="new-button" id="new-document"><span>＋</span> 新建整理 <kbd>Alt N</kbd></button>
+      <div class="sidebar-heading"><h2>最近记录 <span id="history-count">0</span></h2><button id="refresh-history" class="icon-button" title="刷新历史记录" aria-label="刷新历史记录">↻</button></div>
+      <label class="search"><span aria-hidden="true">⌕</span><input id="history-search" type="search" placeholder="搜索最近记录" aria-label="搜索最近记录"></label>
+      <div id="history-list" class="history-list" aria-live="polite"><div class="history-empty">正在读取历史记录…</div></div>
+    </aside>
+    <main>
+      <div class="workspace-toolbar">
+        <div class="toolbar-start"><div class="mode-switch" role="group" aria-label="整理模式"><button id="mode-format" class="selected" aria-pressed="true">格式化</button><button id="mode-compact" aria-pressed="false">压缩</button></div></div>
+        <div class="format-options"><label for="indent">缩进</label><select id="indent"><option value="2">2 个空格</option><option value="4">4 个空格</option><option value="tab">Tab</option></select><button id="repair-json">修复 JSON</button><button id="wrap" class="wrap-button active" role="switch" aria-checked="true"><span class="switch-track" aria-hidden="true"></span>自动换行</button></div>
+      </div>
+      <section class="editor-panel" aria-label="JSON 编辑工作区">
+        <div class="panel-heading"><span>JSON</span><div class="panel-actions"><button id="fold-all" class="text-button" disabled>全部收起</button><button id="unfold-all" class="text-button" disabled>全部展开</button></div></div>
+        <div class="input-area" id="editor-area"><div id="json-input"></div></div>
+        <div id="repair-notice" class="repair-notice" hidden><span id="repair-summary" role="status"></span><button id="undo-repair" class="text-button">撤销修复</button></div>
+        <div class="panel-footer"><div class="footer-status"><span id="output-status" aria-live="polite"></span><div id="error-panel" class="error-panel" role="alert" hidden><span class="error-detail"><span id="error-location"></span>：<span id="error-message"></span></span><button class="text-button" id="locate-error">定位错误</button></div></div><span id="input-meta">0 字符 · UTF-8</span></div>
+      </section>
+      <div class="workspace-bottom"><div id="save-status" aria-live="polite">有效 JSON 自动保存历史 · 仅当前浏览器可见</div><span id="input-hint">粘贴即整理 · <kbd>Ctrl</kbd> + <kbd>Enter</kbd> 立即整理</span></div>
+      <div class="connection" id="connection"><i></i>连接中</div>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

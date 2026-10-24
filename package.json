@@ -1,0 +1,19 @@
+{
+  "name": "json-studio-browser-tests",
+  "private": true,
+  "scripts": {
+    "test:e2e": "node scripts/browser-test.cjs",
+    "build:editor": "node scripts/build-editor.cjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "playwright": "1.62.1"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15"
+  }
+}
